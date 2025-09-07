@@ -2,10 +2,10 @@ import type { Handler } from "@netlify/functions";
 import { GoogleGenAI } from '@google/genai';
 
 export const handler: Handler = async (event) => {
-  // Debug temporal: imprime la API key (quítalo después de probar)
+  // Opcional: solo para debug, quitar tras comprobar en los logs
   console.log("API KEY en función serverless:", process.env.GEMINI_API_KEY);
 
-  // Inicializa SIEMPRE dentro del handler, no fuera
+  // Inicializa SIEMPRE dentro del handler
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
   if (event.httpMethod !== 'POST') {
@@ -30,10 +30,17 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    // Ejemplo de llamada segura: pon tu propia lógica Gemini aquí
+    // --- AQUÍ va tu lógica Gemini real ---
     // const response = await ai.models.generateContent({ ... });
-    // Simulación de resultado:
-    // const response = { text: '{ "resultado": 42 }' };
+    // Por seguridad, mientras haces pruebas:
+    return {
+      statusCode: 200,
+      body: JSON.stringify({ success: true }),
+    };
+
+    //
+    // Si quieres reintegrar tu parsing real:
+    //
     // let jsonResult = null;
     // try {
     //   jsonResult = JSON.parse(response.text);
@@ -46,17 +53,10 @@ export const handler: Handler = async (event) => {
     // const cleanJson = JSON.parse(JSON.stringify(jsonResult, (key, value) =>
     //   (typeof value === 'number' && isNaN(value)) ? null : value
     // ));
-
     // return {
     //   statusCode: 200,
     //   body: JSON.stringify(cleanJson)
     // };
-
-    // Mientras tanto, solo responde éxito para test:
-    return {
-      statusCode: 200,
-      body: JSON.stringify({ success: true }),
-    };
 
   } catch (error) {
     return {
