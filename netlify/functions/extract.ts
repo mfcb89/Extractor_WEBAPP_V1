@@ -2,9 +2,10 @@ import type { Handler } from "@netlify/functions";
 import { GoogleGenAI } from '@google/genai';
 
 export const handler: Handler = async (event) => {
+  // Debug temporal: imprime la API key (quítalo después de probar)
   console.log("API KEY en función serverless:", process.env.GEMINI_API_KEY);
 
-  // Inicializa el cliente AQUÍ (dentro del handler)
+  // Inicializa SIEMPRE dentro del handler, no fuera
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
   if (event.httpMethod !== 'POST') {
@@ -19,6 +20,7 @@ export const handler: Handler = async (event) => {
       body: JSON.stringify({ error: 'Request body is missing.' }),
     };
   }
+
   try {
     const { pdfBase64 } = JSON.parse(event.body);
     if (!pdfBase64) {
@@ -28,14 +30,32 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    // ... Tu lógica Gemini aquí ...
+    // Ejemplo de llamada segura: pon tu propia lógica Gemini aquí
     // const response = await ai.models.generateContent({ ... });
+    // Simulación de resultado:
+    // const response = { text: '{ "resultado": 42 }' };
+    // let jsonResult = null;
+    // try {
+    //   jsonResult = JSON.parse(response.text);
+    // } catch {
+    //   return {
+    //     statusCode: 500,
+    //     body: JSON.stringify({ error: 'La respuesta de Gemini no es un JSON válido.' })
+    //   };
+    // }
+    // const cleanJson = JSON.parse(JSON.stringify(jsonResult, (key, value) =>
+    //   (typeof value === 'number' && isNaN(value)) ? null : value
+    // ));
 
-    // OPCIONAL: aquí el resto de tu código de robustez y limpieza
+    // return {
+    //   statusCode: 200,
+    //   body: JSON.stringify(cleanJson)
+    // };
 
+    // Mientras tanto, solo responde éxito para test:
     return {
       statusCode: 200,
-      body: JSON.stringify({ success: true }) // Cambia por tu dato real
+      body: JSON.stringify({ success: true }),
     };
 
   } catch (error) {
