@@ -42,7 +42,7 @@ export const handler: Handler = async (event) => {
           { mimeType: "application/pdf", data: pdfBase64 },
           {
             text: `
-Analiza el PDF adjunto y extrae los datos relevantes en formato JSON. 
+Analiza el PDF adjunto y extrae los datos relevantes en formato JSON.
 Devuelve exclusivamente un objeto JSON válido y puro, SIN encabezados, SIN markdown y SIN explicaciones.
 Por ejemplo:
 { "nombre": "...", "nif": "...", "campos": ... }
@@ -71,12 +71,12 @@ Por ejemplo:
     let rawReply = response.text.trim();
 
     // Elimina bloque markdown ``````
-    if (rawReply.startsWith('```
-      rawReply = rawReply.replace(/^```json\s*/, '').replace(/```
+    if (rawReply.startsWith("```
+      rawReply = rawReply.replace(/^```[a-z]*\s*/i, "").replace(/```
     }
 
     // Si hay texto antes del JSON, corta desde la primera llave {
-    const firstBrace = rawReply.indexOf('{');
+    const firstBrace = rawReply.indexOf("{");
     if (firstBrace !== -1) rawReply = rawReply.slice(firstBrace);
 
     let jsonResult = null;
@@ -92,7 +92,7 @@ Por ejemplo:
 
     // Sustituye NaN por null si se cuela alguno
     const cleanJson = JSON.parse(JSON.stringify(jsonResult, (key, value) =>
-      (typeof value === 'number' && isNaN(value)) ? null : value
+      (typeof value === "number" && isNaN(value)) ? null : value
     ));
 
     console.log("JSON FINAL LIMPIO:", cleanJson);
