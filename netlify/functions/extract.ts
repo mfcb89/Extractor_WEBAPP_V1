@@ -3,18 +3,17 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export const handler: Handler = async (event) => {
   console.log("INICIO handler Netlify - Recibido evento");
-  
-  // Verifica que la API key exista
+
+  // 1. Chequeo API key
   if (!process.env.GEMINI_API_KEY) {
-    console.error("GEMINI_API_KEY no está definida en las variables de entorno.");
+    console.error("GEMINI_API_KEY no está definida.");
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: "Configuración del servidor incompleta: falta la API key de Gemini." }),
+      body: JSON.stringify({ error: "Falta la API key de Gemini." }),
     };
   }
 
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-
+  // 2. Solo POST permitido
   if (event.httpMethod !== "POST") {
     console.log("Método incorrecto:", event.httpMethod);
     return {
@@ -23,21 +22,20 @@ export const handler: Handler = async (event) => {
     };
   }
 
+  // 3. Chequeo de body
   if (!event.body) {
-    console.log("Request body is missing.");
+    console.log("Falta body.");
     return {
       statusCode: 400,
       body: JSON.stringify({ error: "Request body is missing." }),
     };
   }
 
-  console.log("RAW event.body recibido. Longitud:", event.body.length);
-  
   let parsedBody;
   try {
     parsedBody = JSON.parse(event.body);
   } catch (err) {
-    console.error("ERROR AL PARSEAR event.body:", err, "body recibido:", event.body);
+    console.error("ERROR PARSEANDO body:", err);
     return {
       statusCode: 400,
       body: JSON.stringify({ error: "Body JSON inválido", raw: event.body }),
@@ -54,10 +52,9 @@ export const handler: Handler = async (event) => {
   }
 
   try {
-    console.log("Obteniendo modelo de Gemini y preparando la llamada...");
-    
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    
+
     const prompt = `
 Analiza el PDF adjunto y extrae los datos relevantes en formato JSON.
 Devuelve exclusivamente un objeto JSON válido y puro, SIN encabezados, SIN markdown, y SIN explicaciones.
@@ -73,27 +70,26 @@ Ejemplo de salida esperada:
       },
     };
 
+    // Llama a Gemini
     const result = await model.generateContent([prompt, filePart]);
     const response = result.response;
-    
+
     const textFromGemini = response.text();
     console.log("RESPUESTA CRUDA DE GEMINI:", textFromGemini);
-    
+
     if (!textFromGemini) {
-      console.log("Gemini no devolvió texto válido:", response);
       return {
         statusCode: 500,
-        body: JSON.stringify({ error: "Sin respuesta de texto válida de Gemini", raw: response }),
+        body: JSON.stringify({ error: "Sin respuesta de texto válida de Gemini" }),
       };
     }
 
-    // Limpieza robusta del JSON
+    // LIMPIEZA del output: elimina bloques ``````
     let rawReply = textFromGemini.trim();
-    
-    // Si viene envuelto en bloque de código markdown lo elimina
-    const match = rawReply.match(/```(?:json)?\s*([\s\S]*?)\s*```
+    const codeBlockRegex = /``````/;
+    const match = rawReply.match(codeBlockRegex);
     if (match) {
-      rawReply = match;
+      rawReply = match[1];
     }
 
     let jsonResult;
@@ -108,7 +104,7 @@ Ejemplo de salida esperada:
     }
 
     console.log("JSON FINAL LIMPIO:", jsonResult);
-    
+
     return {
       statusCode: 200,
       headers: {
@@ -116,7 +112,7 @@ Ejemplo de salida esperada:
       },
       body: JSON.stringify(jsonResult),
     };
-    
+
   } catch (error) {
     console.error("ERROR GENERAL EN EL HANDLER:", error);
     const errorMessage = error instanceof Error ? error.message : String(error);
