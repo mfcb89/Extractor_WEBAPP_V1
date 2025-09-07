@@ -67,11 +67,15 @@ Por ejemplo:
       };
     }
 
-    // Limpieza robusta del JSON
+    // ------ LIMPIEZA ROBUSTA DEL JSON ------
     let rawReply = response.text.trim();
+
+    // Elimina bloque markdown ``````
     if (rawReply.startsWith('```
       rawReply = rawReply.replace(/^```json\s*/, '').replace(/```
     }
+
+    // Si hay texto antes del JSON, corta desde la primera llave {
     const firstBrace = rawReply.indexOf('{');
     if (firstBrace !== -1) rawReply = rawReply.slice(firstBrace);
 
@@ -86,6 +90,7 @@ Por ejemplo:
       };
     }
 
+    // Sustituye NaN por null si se cuela alguno
     const cleanJson = JSON.parse(JSON.stringify(jsonResult, (key, value) =>
       (typeof value === 'number' && isNaN(value)) ? null : value
     ));
