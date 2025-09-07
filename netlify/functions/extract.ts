@@ -2,7 +2,7 @@ import type { Handler } from "@netlify/functions";
 import { GoogleGenAI } from '@google/genai';
 
 export const handler: Handler = async (event) => {
-  // Opcional: solo para debug, quitar tras comprobar en los logs
+  // (solo para debug temporal, quita esto cuando veas que la clave sí llega)
   console.log("API KEY en función serverless:", process.env.GEMINI_API_KEY);
 
   // Inicializa SIEMPRE dentro del handler
@@ -21,26 +21,24 @@ export const handler: Handler = async (event) => {
     };
   }
 
-  try {
-    const { pdfBase64 } = JSON.parse(event.body);
-    if (!pdfBase64) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: 'No se ha proporcionado el contenido del PDF.' }),
-      };
-    }
+  // --- Tu validación del PDF aquí ---
+  const { pdfBase64 } = JSON.parse(event.body);
+  if (!pdfBase64) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({ error: 'No se ha proporcionado el contenido del PDF.' }),
+    };
+  }
 
-    // --- AQUÍ va tu lógica Gemini real ---
-    // const response = await ai.models.generateContent({ ... });
-    // Por seguridad, mientras haces pruebas:
+  try {
+    // Aquí iría tu lógica Gemini (de momento responde un éxito simple para probar que la función funciona)
     return {
       statusCode: 200,
       body: JSON.stringify({ success: true }),
     };
 
-    //
-    // Si quieres reintegrar tu parsing real:
-    //
+    // Si tienes lógica real de Gemini, aquí reintegras:
+    // const response = await ai.models.generateContent({ ... });
     // let jsonResult = null;
     // try {
     //   jsonResult = JSON.parse(response.text);
