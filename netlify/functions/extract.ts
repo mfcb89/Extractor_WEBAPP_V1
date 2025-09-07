@@ -1,29 +1,26 @@
 import type { Handler } from "@netlify/functions";
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI } from "@google/genai";
 
 export const handler: Handler = async (event) => {
   console.log("INICIO handler Netlify - Recibido evento");
-
-  // Inicializa Gemini solo dentro del handler
-  console.log("API KEY en función serverless:", process.env.GEMINI_API_KEY);
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-  if (event.httpMethod !== 'POST') {
+  if (event.httpMethod !== "POST") {
     console.log("Método incorrecto:", event.httpMethod);
     return {
       statusCode: 405,
-      body: JSON.stringify({ error: 'Method Not Allowed' }),
+      body: JSON.stringify({ error: "Method Not Allowed" }),
     };
   }
+
   if (!event.body) {
     console.log("Request body is missing.");
     return {
       statusCode: 400,
-      body: JSON.stringify({ error: 'Request body is missing.' }),
+      body: JSON.stringify({ error: "Request body is missing." }),
     };
   }
 
-  // --- LOGGEO Y PARSEO SEGURO DEL BODY ---
   console.log("RAW event.body:", event.body);
   let parsedBody;
   try {
@@ -33,15 +30,16 @@ export const handler: Handler = async (event) => {
     console.log("ERROR AL PARSEAR event.body:", err, "body recibido:", event.body);
     return {
       statusCode: 400,
-      body: JSON.stringify({ error: "Body JSON inválido", raw: event.body })
+      body: JSON.stringify({ error: "Body JSON inválido", raw: event.body }),
     };
   }
+
   const { pdfBase64 } = parsedBody;
   if (!pdfBase64) {
     console.log("No se ha proporcionado el contenido del PDF. Body recibido:", parsedBody);
     return {
       statusCode: 400,
-      body: JSON.stringify({ error: 'No se ha proporcionado el contenido del PDF.' }),
+      body: JSON.stringify({ error: "No se ha proporcionado el contenido del PDF." }),
     };
   }
 
@@ -82,15 +80,14 @@ Por ejemplo:
 
     // ------ LIMPIEZA ROBUSTA DEL JSON ------
     let rawReply = response.text.trim();
-
-    // Elimina bloque markdown ``````
-    if (rawReply.startsWith("```
-      rawReply = rawReply.replace(/^```[a-z]*\s*/i, "").replace(/```
+    // Si viene envuelto en bloque ```lang ... ```
+    if (/^```/.test(rawReply) && /```
+      // quita la primera línea con ``` y posible lenguaje
+      rawReply = rawReply.replace(/^``````$/, "");
     }
-
-    // Si hay texto antes del JSON, corta desde la primera llave {
-    const firstBrace = rawReply.indexOf("{");
-    if (firstBrace !== -1) rawReply = rawReply.slice(firstBrace);
+    // Si hay texto antes del {, córtalo
+    const i = rawReply.indexOf("{");
+    if (i !== -1) rawReply = rawReply.slice(i);
 
     let jsonResult = null;
     try {
@@ -99,7 +96,7 @@ Por ejemplo:
       console.log("ERROR EN JSON.PARSE. TEXTO CRUDO:", rawReply);
       return {
         statusCode: 500,
-        body: JSON.stringify({ error: 'La respuesta de Gemini no es un JSON válido.', raw: response.text })
+        body: JSON.stringify({ error: "La respuesta de Gemini no es un JSON válido.", raw: response.text }),
       };
     }
 
@@ -107,12 +104,11 @@ Por ejemplo:
     const cleanJson = JSON.parse(JSON.stringify(jsonResult, (key, value) =>
       (typeof value === "number" && isNaN(value)) ? null : value
     ));
-
     console.log("JSON FINAL LIMPIO:", cleanJson);
 
     return {
       statusCode: 200,
-      body: JSON.stringify(cleanJson)
+      body: JSON.stringify(cleanJson),
     };
 
   } catch (error) {
