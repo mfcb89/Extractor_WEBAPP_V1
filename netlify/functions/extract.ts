@@ -1,121 +1,140 @@
+// netlify/functions/extract.ts
 import type { Handler } from "@netlify/functions";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
 
 export const handler: Handler = async (event) => {
-  console.log("INICIO handler Netlify - Recibido evento");
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  // Preflight CORS
+  if (event.httpMethod === "OPTIONS") {
+    return { statusCode: 204, headers: corsHeaders, body: "" };
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    return {
+      statusCode: 500,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: "Falta la variable de entorno GEMINI_API_KEY" }),
+    };
+  }
 
   if (event.httpMethod !== "POST") {
-    console.log("Método incorrecto:", event.httpMethod);
     return {
       statusCode: 405,
+      headers: corsHeaders,
       body: JSON.stringify({ error: "Method Not Allowed" }),
     };
   }
 
   if (!event.body) {
-    console.log("Request body is missing.");
     return {
       statusCode: 400,
+      headers: corsHeaders,
       body: JSON.stringify({ error: "Request body is missing." }),
     };
   }
 
-  console.log("RAW event.body:", event.body);
-  let parsedBody;
+  // Parseo del body
+  let parsedBody: { pdfBase64?: string };
   try {
     parsedBody = JSON.parse(event.body);
-    console.log("parsedBody:", parsedBody);
-  } catch (err) {
-    console.log("ERROR AL PARSEAR event.body:", err, "body recibido:", event.body);
+  } catch {
     return {
       statusCode: 400,
-      body: JSON.stringify({ error: "Body JSON inválido", raw: event.body }),
+      headers: corsHeaders,
+      body: JSON.stringify({ error: "Body JSON inválido" }),
     };
   }
 
-  const { pdfBase64 } = parsedBody;
+  let { pdfBase64 } = parsedBody || {};
   if (!pdfBase64) {
-    console.log("No se ha proporcionado el contenido del PDF. Body recibido:", parsedBody);
     return {
       statusCode: 400,
+      headers: corsHeaders,
       body: JSON.stringify({ error: "No se ha proporcionado el contenido del PDF." }),
     };
   }
 
-  try {
-    console.log("Enviando PDF a Gemini...");
-    let response;
-    try {
-      response = await ai.models.generateContent({
-        model: "gemini-pro-vision",
-        prompt: [
-          { mimeType: "application/pdf", data: pdfBase64 },
-          {
-            text: `
-Analiza el PDF adjunto y extrae los datos relevantes en formato JSON.
-Devuelve exclusivamente un objeto JSON válido y puro, SIN encabezados, SIN markdown y SIN explicaciones.
-Por ejemplo:
-{ "nombre": "...", "nif": "...", "campos": ... }
-`
-          }
-        ]
-      });
-      console.log("RESPUESTA DE GEMINI:", response && response.text);
-    } catch (e) {
-      console.log("ERROR EN LLAMADA A GEMINI:", e);
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: "Error en llamada a Gemini", detail: e instanceof Error ? e.message : String(e) }),
-      };
+  // Permite tanto "AAAA..." como "data:application/pdf;base64,AAAA..."
+  const commaIdx = pdfBase64.indexOf(",");
+  if (commaIdx !== -1) {
+    const prefix = pdfBase64.slice(0, commaIdx);
+    if (/^data:application\/pdf;base64$/i.test(prefix)) {
+      pdfBase64 = pdfBase64.slice(commaIdx + 1);
     }
+  }
 
-    if (!response || !response.text) {
-      console.log("Gemini no devolvió respuesta válida:", response);
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: "Sin respuesta válida de Gemini", raw: response }),
-      };
-    }
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    // Modelo multimodal con soporte para PDF
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+
+    const result = await model.generateContent([
+      { inlineData: { data: pdfBase64, mimeType: "application/pdf" } },
+      {
+        text:
+          "Analiza el PDF adjunto y extrae los datos relevantes en formato JSON.\n" +
+          "Devuelve exclusivamente un objeto JSON válido y puro, SIN encabezados, SIN markdown y SIN explicaciones.\n" +
+          'Por ejemplo: { "nombre": "...", "nif": "...", "campos": ... }',
+      },
+    ]);
+
+    const response = await result.response;
+    let rawReply = (response.text() || "").trim();
 
     // ------ LIMPIEZA ROBUSTA DEL JSON ------
-    let rawReply = response.text.trim();
-    // Si viene envuelto en bloque ```lang ... ```
-    if (/^```/.test(rawReply) && /```
-      // quita la primera línea con ``` y posible lenguaje
-      rawReply = rawReply.replace(/^``````$/, "");
+    // Quita bloque ```...``` si existe, sin regex mal terminadas
+    if (/^```/.test(rawReply) && /```$/.test(rawReply)) {
+      // Elimina línea inicial ```(json|...) y la marca de cierre ```
+      rawReply = rawReply.replace(/^```[^\n]*\n?/, "").replace(/\n?```$/, "");
     }
-    // Si hay texto antes del {, córtalo
-    const i = rawReply.indexOf("{");
-    if (i !== -1) rawReply = rawReply.slice(i);
 
-    let jsonResult = null;
+    // Recorta desde la primera { hasta la última }
+    const firstBrace = rawReply.indexOf("{");
+    const lastBrace = rawReply.lastIndexOf("}");
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      rawReply = rawReply.slice(firstBrace, lastBrace + 1);
+    }
+
+    // Intenta parsear
+    let jsonResult: unknown;
     try {
       jsonResult = JSON.parse(rawReply);
     } catch {
-      console.log("ERROR EN JSON.PARSE. TEXTO CRUDO:", rawReply);
       return {
         statusCode: 500,
-        body: JSON.stringify({ error: "La respuesta de Gemini no es un JSON válido.", raw: response.text }),
+        headers: corsHeaders,
+        body: JSON.stringify({
+          error: "La respuesta de Gemini no es un JSON válido.",
+          raw: rawReply,
+        }),
       };
     }
 
-    // Sustituye NaN por null si se cuela alguno
-    const cleanJson = JSON.parse(JSON.stringify(jsonResult, (key, value) =>
-      (typeof value === "number" && isNaN(value)) ? null : value
-    ));
-    console.log("JSON FINAL LIMPIO:", cleanJson);
+    // Sustituye NaN por null
+    const cleanJson = JSON.parse(
+      JSON.stringify(jsonResult, (_k, v) =>
+        typeof v === "number" && Number.isNaN(v) ? null : v
+      )
+    );
 
     return {
       statusCode: 200,
+      headers: { "Content-Type": "application/json", ...corsHeaders },
       body: JSON.stringify(cleanJson),
     };
-
-  } catch (error) {
-    console.log("ERROR GENERAL EN EL HANDLER:", error);
+  } catch (e) {
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
+      headers: corsHeaders,
+      body: JSON.stringify({
+        error: e instanceof Error ? e.message : String(e),
+      }),
     };
   }
 };
