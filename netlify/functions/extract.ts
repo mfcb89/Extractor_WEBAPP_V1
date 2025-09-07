@@ -1,7 +1,6 @@
 import type { Handler } from "@netlify/functions";
 
-// Si usas Node <18, instala node-fetch con npm y: import fetch from "node-fetch";
-// Netlify permite fetch nativo en runtimes modernos, así que así es más estándar.
+// Netlify permite fetch nativo en runtimes modernos.
 
 export const handler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -10,6 +9,7 @@ export const handler: Handler = async (event) => {
       body: JSON.stringify({ error: "Method Not Allowed" }),
     };
   }
+
   if (!event.body) {
     return {
       statusCode: 400,
@@ -26,6 +26,7 @@ export const handler: Handler = async (event) => {
       body: JSON.stringify({ error: "Body JSON inválido", raw: event.body }),
     };
   }
+
   const { pdfBase64 } = parsedBody;
   if (!pdfBase64) {
     return {
@@ -36,9 +37,10 @@ export const handler: Handler = async (event) => {
 
   try {
     const geminiApiKey = process.env.GEMINI_API_KEY;
-    const apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent?key=" + geminiApiKey;
+    const apiUrl =
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent?key=" +
+      geminiApiKey;
 
-    // Construcción del request según Gemini REST docs
     const geminiRequest = {
       contents: [
         {
@@ -65,14 +67,15 @@ Por ejemplo:
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(geminiRequest),
     });
+
     const data = await res.json();
 
     // --- Extracción y limpieza robusta del texto ---
     let rawReply = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
-    // Si viene envuelto en bloque ``````
-    if (/^``````$/.test(rawReply)) {
-      // quita la primera línea con ```
-      rawReply = rawReply.replace(/^```[^\n]*\n?/, "").replace(/\n?```
+    // Si viene envuelto en bloque ```
+    if (/^```/.test(rawReply) && /```
+      // quita la primera línea con ``` y posible lenguaje
+      rawReply = rawReply.replace(/^``````$/, "");
     }
     // Si hay texto antes del {, córtalo
     const i = rawReply.indexOf("{");
@@ -84,24 +87,30 @@ Por ejemplo:
     } catch {
       return {
         statusCode: 500,
-        body: JSON.stringify({ error: "La respuesta de Gemini no es un JSON válido.", raw: rawReply }),
+        body: JSON.stringify({
+          error: "La respuesta de Gemini no es un JSON válido.",
+          raw: rawReply,
+        }),
       };
     }
 
     // Sustituye NaN por null si se cuela alguno
-    const cleanJson = JSON.parse(JSON.stringify(jsonResult, (key, value) =>
-      (typeof value === "number" && isNaN(value)) ? null : value
-    ));
+    const cleanJson = JSON.parse(
+      JSON.stringify(jsonResult, (key, value) =>
+        typeof value === "number" && isNaN(value) ? null : value
+      )
+    );
 
     return {
       statusCode: 200,
       body: JSON.stringify(cleanJson),
     };
-
   } catch (error) {
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
+      body: JSON.stringify({
+        error: error instanceof Error ? error.message : String(error),
+      }),
     };
   }
 };
