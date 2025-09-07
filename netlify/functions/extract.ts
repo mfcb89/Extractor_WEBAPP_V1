@@ -1,10 +1,9 @@
 import type { Handler } from "@netlify/functions";
-// 1. Corregido el nombre de la clase
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export const handler: Handler = async (event) => {
   console.log("INICIO handler Netlify - Recibido evento");
-
+  
   // Verifica que la API key exista
   if (!process.env.GEMINI_API_KEY) {
     console.error("GEMINI_API_KEY no está definida en las variables de entorno.");
@@ -14,7 +13,6 @@ export const handler: Handler = async (event) => {
     };
   }
 
-  // 2. Corregida la inicialización del cliente
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
   if (event.httpMethod !== "POST") {
@@ -34,6 +32,7 @@ export const handler: Handler = async (event) => {
   }
 
   console.log("RAW event.body recibido. Longitud:", event.body.length);
+  
   let parsedBody;
   try {
     parsedBody = JSON.parse(event.body);
@@ -56,13 +55,12 @@ export const handler: Handler = async (event) => {
 
   try {
     console.log("Obteniendo modelo de Gemini y preparando la llamada...");
-
-    // 3. Corregida la forma de llamar al modelo
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); // Usamos gemini-1.5-flash que es más rápido y económico para estas tareas. Puedes usar "gemini-pro-vision" si lo prefieres.
-
+    
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    
     const prompt = `
 Analiza el PDF adjunto y extrae los datos relevantes en formato JSON.
-Devuelve exclusivamente un objeto JSON válido y puro, SIN encabezados, SIN markdown (```json), y SIN explicaciones.
+Devuelve exclusivamente un objeto JSON válido y puro, SIN encabezados, SIN markdown, y SIN explicaciones.
 El JSON debe ser directamente parseable.
 Ejemplo de salida esperada:
 { "nombre": "...", "nif": "...", "campos": [...] }
@@ -78,10 +76,9 @@ Ejemplo de salida esperada:
     const result = await model.generateContent([prompt, filePart]);
     const response = result.response;
     
-    // 4. Corregido el acceso al texto de la respuesta
     const textFromGemini = response.text();
     console.log("RESPUESTA CRUDA DE GEMINI:", textFromGemini);
-
+    
     if (!textFromGemini) {
       console.log("Gemini no devolvió texto válido:", response);
       return {
@@ -90,12 +87,13 @@ Ejemplo de salida esperada:
       };
     }
 
-    // ------ LIMPIEZA ROBUSTA DEL JSON ------
+    // Limpieza robusta del JSON
     let rawReply = textFromGemini.trim();
-    // Si viene envuelto en bloque ```json ... ``` lo elimina
-    const match = rawReply.match(/```(json)?\s*([\s\S]*?)\s*```/);
+    
+    // Si viene envuelto en bloque de código markdown lo elimina
+    const match = rawReply.match(/```(?:json)?\s*([\s\S]*?)\s*```
     if (match) {
-        rawReply = match[2];
+      rawReply = match;
     }
 
     let jsonResult;
@@ -110,7 +108,7 @@ Ejemplo de salida esperada:
     }
 
     console.log("JSON FINAL LIMPIO:", jsonResult);
-
+    
     return {
       statusCode: 200,
       headers: {
@@ -118,7 +116,7 @@ Ejemplo de salida esperada:
       },
       body: JSON.stringify(jsonResult),
     };
-
+    
   } catch (error) {
     console.error("ERROR GENERAL EN EL HANDLER:", error);
     const errorMessage = error instanceof Error ? error.message : String(error);
