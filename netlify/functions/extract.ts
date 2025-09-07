@@ -1,9 +1,12 @@
 import type { Handler } from "@netlify/functions";
 import { GoogleGenAI } from '@google/genai';
-// Inicializa el cliente con la API Key explícita
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
 export const handler: Handler = async (event) => {
   console.log("API KEY en función serverless:", process.env.GEMINI_API_KEY);
+
+  // Inicializa el cliente AQUÍ (dentro del handler)
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
@@ -24,29 +27,18 @@ export const handler: Handler = async (event) => {
         body: JSON.stringify({ error: 'No se ha proporcionado el contenido del PDF.' }),
       };
     }
-    // ... TU lógica Gemini aquí ...
-    // Supongamos que response.text es el JSON resultante
-    const response = await ai.models.generateContent({ /* ... */ });
-    let jsonResult: any = null;
-    try {
-      jsonResult = JSON.parse(response.text);
-    } catch {
-      // Si Gemini no responde un JSON válido, señaliza el error
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: 'La respuesta de Gemini no es un JSON válido.' })
-      };
-    }
-    // Limpia los valores NaN (JS los convierte en null al hacer esto)
-    const cleanJson = JSON.parse(JSON.stringify(jsonResult, (key, value) =>
-      (typeof value === 'number' && isNaN(value)) ? null : value
-    ));
+
+    // ... Tu lógica Gemini aquí ...
+    // const response = await ai.models.generateContent({ ... });
+
+    // OPCIONAL: aquí el resto de tu código de robustez y limpieza
+
     return {
       statusCode: 200,
-      body: JSON.stringify(cleanJson)
+      body: JSON.stringify({ success: true }) // Cambia por tu dato real
     };
+
   } catch (error) {
-    // Manejo robusto de errores, siempre JSON simple
     return {
       statusCode: 500,
       body: JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
