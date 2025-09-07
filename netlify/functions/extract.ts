@@ -1,30 +1,16 @@
 import type { Handler } from "@netlify/functions";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+
+// Si usas Node <18, instala node-fetch con npm y: import fetch from "node-fetch";
+// Netlify permite fetch nativo en runtimes modernos, así que así es más estándar.
 
 export const handler: Handler = async (event) => {
-  console.log("INICIO handler Netlify - Recibido evento");
-
-  // 1. Chequeo API key
-  if (!process.env.GEMINI_API_KEY) {
-    console.error("GEMINI_API_KEY no está definida.");
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: "Falta la API key de Gemini." }),
-    };
-  }
-
-  // 2. Solo POST permitido
   if (event.httpMethod !== "POST") {
-    console.log("Método incorrecto:", event.httpMethod);
     return {
       statusCode: 405,
       body: JSON.stringify({ error: "Method Not Allowed" }),
     };
   }
-
-  // 3. Chequeo de body
   if (!event.body) {
-    console.log("Falta body.");
     return {
       statusCode: 400,
       body: JSON.stringify({ error: "Request body is missing." }),
@@ -35,90 +21,87 @@ export const handler: Handler = async (event) => {
   try {
     parsedBody = JSON.parse(event.body);
   } catch (err) {
-    console.error("ERROR PARSEANDO body:", err);
     return {
       statusCode: 400,
       body: JSON.stringify({ error: "Body JSON inválido", raw: event.body }),
     };
   }
-
   const { pdfBase64 } = parsedBody;
   if (!pdfBase64) {
-    console.log("No se ha proporcionado el contenido del PDF en base64.");
     return {
       statusCode: 400,
-      body: JSON.stringify({ error: "El campo 'pdfBase64' es requerido." }),
+      body: JSON.stringify({ error: "No se ha proporcionado el contenido del PDF." }),
     };
   }
 
   try {
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const geminiApiKey = process.env.GEMINI_API_KEY;
+    const apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent?key=" + geminiApiKey;
 
-    const prompt = `
+    // Construcción del request según Gemini REST docs
+    const geminiRequest = {
+      contents: [
+        {
+          parts: [
+            {
+              mimeType: "application/pdf",
+              data: pdfBase64,
+            },
+            {
+              text: `
 Analiza el PDF adjunto y extrae los datos relevantes en formato JSON.
-Devuelve exclusivamente un objeto JSON válido y puro, SIN encabezados, SIN markdown, y SIN explicaciones.
-El JSON debe ser directamente parseable.
-Ejemplo de salida esperada:
-{ "nombre": "...", "nif": "...", "campos": [...] }
-`;
-
-    const filePart = {
-      inlineData: {
-        data: pdfBase64,
-        mimeType: "application/pdf",
-      },
+Devuelve exclusivamente un objeto JSON válido y puro, SIN encabezados, SIN markdown y SIN explicaciones.
+Por ejemplo:
+{ "nombre": "...", "nif": "...", "campos": ... }
+`
+            }
+          ]
+        }
+      ]
     };
 
-    // Llama a Gemini
-    const result = await model.generateContent([prompt, filePart]);
-    const response = result.response;
+    const res = await fetch(apiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(geminiRequest),
+    });
+    const data = await res.json();
 
-    const textFromGemini = response.text();
-    console.log("RESPUESTA CRUDA DE GEMINI:", textFromGemini);
-
-    if (!textFromGemini) {
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: "Sin respuesta de texto válida de Gemini" }),
-      };
+    // --- Extracción y limpieza robusta del texto ---
+    let rawReply = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+    // Si viene envuelto en bloque ``````
+    if (/^``````$/.test(rawReply)) {
+      // quita la primera línea con ```
+      rawReply = rawReply.replace(/^```[^\n]*\n?/, "").replace(/\n?```
     }
+    // Si hay texto antes del {, córtalo
+    const i = rawReply.indexOf("{");
+    if (i !== -1) rawReply = rawReply.slice(i);
 
-    // LIMPIEZA del output: elimina bloques ``````
-    let rawReply = textFromGemini.trim();
-    const codeBlockRegex = /``````/;
-    const match = rawReply.match(codeBlockRegex);
-    if (match) {
-      rawReply = match[1];
-    }
-
-    let jsonResult;
+    let jsonResult = null;
     try {
       jsonResult = JSON.parse(rawReply);
-    } catch (e) {
-      console.error("ERROR EN JSON.PARSE. TEXTO RECIBIDO DE GEMINI:", rawReply);
+    } catch {
       return {
         statusCode: 500,
         body: JSON.stringify({ error: "La respuesta de Gemini no es un JSON válido.", raw: rawReply }),
       };
     }
 
-    console.log("JSON FINAL LIMPIO:", jsonResult);
+    // Sustituye NaN por null si se cuela alguno
+    const cleanJson = JSON.parse(JSON.stringify(jsonResult, (key, value) =>
+      (typeof value === "number" && isNaN(value)) ? null : value
+    ));
 
     return {
       statusCode: 200,
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(jsonResult),
+      body: JSON.stringify(cleanJson),
     };
 
   } catch (error) {
-    console.error("ERROR GENERAL EN EL HANDLER:", error);
-    const errorMessage = error instanceof Error ? error.message : String(error);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: "Error interno del servidor.", detail: errorMessage }),
+      body: JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
     };
   }
 };
