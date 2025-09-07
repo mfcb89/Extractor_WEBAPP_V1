@@ -3,7 +3,7 @@ import { GoogleGenAI } from '@google/genai';
 
 export const handler: Handler = async (event) => {
   console.log("INICIO handler Netlify - Recibido evento");
-  // Inicializa Gemini solo dentro del handler
+
   console.log("API KEY en función serverless:", process.env.GEMINI_API_KEY);
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -70,6 +70,7 @@ Por ejemplo:
         body: JSON.stringify({ error: "Error en llamada a Gemini", detail: e instanceof Error ? e.message : String(e) }),
       };
     }
+
     if (!response || !response.text) {
       console.log("Gemini no devolvió respuesta válida:", response);
       return {
@@ -80,13 +81,14 @@ Por ejemplo:
 
     // ------ LIMPIEZA ROBUSTA DEL JSON ------
     let rawReply = response.text.trim();
-    // Elimina bloque markdown ``````json
+
     if (rawReply.startsWith("```
       rawReply = rawReply.replace(/^```[a-z]*\s*/i, "").replace(/```
     }
-    // Si hay texto antes del JSON, corta desde la primera llave {
+
     const firstBrace = rawReply.indexOf("{");
     if (firstBrace !== -1) rawReply = rawReply.slice(firstBrace);
+
     let jsonResult = null;
     try {
       jsonResult = JSON.parse(rawReply);
@@ -97,15 +99,18 @@ Por ejemplo:
         body: JSON.stringify({ error: 'La respuesta de Gemini no es un JSON válido.', raw: response.text })
       };
     }
-    // Sustituye NaN por null si se cuela alguno
+
     const cleanJson = JSON.parse(JSON.stringify(jsonResult, (key, value) =>
       (typeof value === "number" && isNaN(value)) ? null : value
     ));
+
     console.log("JSON FINAL LIMPIO:", cleanJson);
+
     return {
       statusCode: 200,
       body: JSON.stringify(cleanJson)
     };
+
   } catch (error) {
     console.log("ERROR GENERAL EN EL HANDLER:", error);
     return {
