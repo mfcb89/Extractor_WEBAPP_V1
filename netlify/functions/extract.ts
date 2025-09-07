@@ -2,10 +2,10 @@ import type { Handler } from "@netlify/functions";
 import { GoogleGenAI } from '@google/genai';
 
 export const handler: Handler = async (event) => {
-  // Debug temporal: quita este log cuando ya sepas que funciona!
+  // Opcional: solo durante debug, quítalo después de pruebas
   console.log("API KEY en función serverless:", process.env.GEMINI_API_KEY);
 
-  // Inicialización SEGURA dentro del handler
+  // Inicializa siempre dentro del handler
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
   if (event.httpMethod !== 'POST') {
@@ -30,9 +30,9 @@ export const handler: Handler = async (event) => {
   }
 
   try {
-    // Llama a Gemini para analizar el PDF (ajusta modelo e instrucciones según tu caso)
+    // --- Llama a Gemini ---
     const response = await ai.models.generateContent({
-      model: "gemini-pro-vision", // Cambia si usas otro modelo
+      model: "gemini-pro-vision", // Cambia por tu modelo si es distinto
       prompt: [
         {
           mimeType: "application/pdf",
@@ -41,32 +41,49 @@ export const handler: Handler = async (event) => {
         {
           text: `
 Analiza el PDF adjunto y extrae los datos relevantes en formato JSON. 
-Devuelve solo el JSON plano sin explicaciones, por ejemplo: 
+Devuelve exclusivamente un objeto JSON válido y puro, SIN encabezados, SIN markdown y SIN explicaciones.
+Por ejemplo:
 { "nombre": "...", "nif": "...", "campos": ... }
 `
         }
       ]
     });
 
-    // Debug temporal para ver exactamente qué responde Gemini
+    // Debug temporal: para ver exactamente la salida del modelo
     console.log("RESPUESTA DE GEMINI:", response.text);
+
+    // --- Limpieza robusta del JSON ---
+    let rawReply = response.text.trim();
+
+    // Elimina markdown `````` al final
+    if (rawReply.startsWith('```
+      rawReply = rawReply.replace(/^```json\s*/, '').replace(/```
+    }
+
+    // Si hay encabezado, corta desde la primera llave {
+    const firstBrace = rawReply.indexOf('{');
+    if (firstBrace !== -1) rawReply = rawReply.slice(firstBrace);
 
     let jsonResult = null;
     try {
-      jsonResult = JSON.parse(response.text);
+      jsonResult = JSON.parse(rawReply);
     } catch {
       return {
         statusCode: 500,
         body: JSON.stringify({ error: 'La respuesta de Gemini no es un JSON válido.', raw: response.text })
       };
     }
+
+    // Limpia valores NaN por null (extra-safe)
     const cleanJson = JSON.parse(JSON.stringify(jsonResult, (key, value) =>
       (typeof value === 'number' && isNaN(value)) ? null : value
     ));
+
     return {
       statusCode: 200,
       body: JSON.stringify(cleanJson)
     };
+
   } catch (error) {
     return {
       statusCode: 500,
